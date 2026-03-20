@@ -29,6 +29,15 @@ const ollama = new Ollama({ host: OLLAMA_BASE_URL });
 const server = new McpServer({
   name: "qwen-vision",
   version: "0.1.0",
+  instructions: `This server provides vision/image analysis tools powered by Qwen 3.5. Use these tools when you need to analyze, read, or describe images.
+
+IMPORTANT: When an image appears in the conversation as base64 data (starts with "iVBOR" or "/9j/" or similar), pass the raw base64 string directly to the tool's image_path parameter. The tool accepts:
+- File paths: /absolute/path/to/image.png
+- URLs: https://example.com/image.jpg
+- Raw base64 strings: iVBORw0KGgo...
+- Data URIs: data:image/png;base64,iVBOR...
+
+Always prefer these tools over guessing what an image contains.`,
 });
 
 async function loadImageBase64(input: string): Promise<string> {
@@ -95,9 +104,9 @@ async function chatWithImage(
 // Tool 1: analyze_image
 server.tool(
   "analyze_image",
-  "Analyze an image using the local Qwen 3.5 vision model. Accepts file path, URL, or base64.",
+  "Analyze an image using a vision model. IMPORTANT: Pass the image as a file path (/path/to/image.png), URL (https://...), OR raw base64 string (iVBORw0KGgo...). If base64 data appears in conversation, pass it directly to image_path.",
   {
-    image_path: z.string().describe("File path, URL, or base64-encoded image data"),
+    image_path: z.string().describe("Image input: file path, URL, or raw base64 string. If you have base64 data, pass it directly here."),
     prompt: z.string().optional().default("Describe this image in detail.").describe("Question or instruction about the image"),
   },
   async ({ image_path, prompt }) => {
@@ -117,9 +126,9 @@ server.tool(
 // Tool 2: extract_text (OCR)
 server.tool(
   "extract_text",
-  "Extract all visible text from an image (OCR).",
+  "Extract all visible text from an image (OCR). Pass image as file path, URL, or raw base64 string. If base64 data appears in conversation, pass it directly to image_path.",
   {
-    image_path: z.string().describe("File path, URL, or base64-encoded image data"),
+    image_path: z.string().describe("Image input: file path, URL, or raw base64 string. If you have base64 data, pass it directly here."),
   },
   async ({ image_path }) => {
     try {
@@ -141,9 +150,9 @@ server.tool(
 // Tool 3: describe_image
 server.tool(
   "describe_image",
-  "Generate a detailed description of an image.",
+  "Generate a detailed description of an image. Pass image as file path, URL, or raw base64 string. If base64 data appears in conversation, pass it directly to image_path.",
   {
-    image_path: z.string().describe("File path, URL, or base64-encoded image data"),
+    image_path: z.string().describe("Image input: file path, URL, or raw base64 string. If you have base64 data, pass it directly here."),
   },
   async ({ image_path }) => {
     try {
@@ -165,10 +174,10 @@ server.tool(
 // Tool 4: compare_images
 server.tool(
   "compare_images",
-  "Compare two images and describe similarities and differences.",
+  "Compare two images and describe similarities and differences. Pass each image as file path, URL, or raw base64 string.",
   {
-    image1: z.string().describe("First image (file path, URL, or base64)"),
-    image2: z.string().describe("Second image (file path, URL, or base64)"),
+    image1: z.string().describe("First image: file path, URL, or raw base64 string"),
+    image2: z.string().describe("Second image: file path, URL, or raw base64 string"),
   },
   async ({ image1, image2 }) => {
     try {
@@ -193,9 +202,9 @@ server.tool(
 // Tool 5: analyze_screenshot
 server.tool(
   "analyze_screenshot",
-  "Analyze a UI screenshot and describe its components.",
+  "Analyze a UI screenshot and describe its components. Pass image as file path, URL, or raw base64 string.",
   {
-    image_path: z.string().describe("Screenshot file path, URL, or base64 data"),
+    image_path: z.string().describe("Screenshot: file path, URL, or raw base64 string"),
   },
   async ({ image_path }) => {
     try {
