@@ -2,6 +2,8 @@
 
 MCP server that adds **image analysis capabilities** to AI models that don't natively support vision.
 
+[![npm version](https://img.shields.io/npm/v/qwen-vision-mcp)](https://www.npmjs.com/package/qwen-vision-mcp)
+
 ## Why?
 
 Models like **MiMo V2 Pro**, **MiniMax M2.1**, and many others are powerful for text but cannot read or analyze images. This MCP server bridges that gap by routing image tasks to **Qwen 3.5** via Ollama — giving any model vision capabilities through tool calls.
@@ -18,7 +20,6 @@ The vision model can be:
 
 ## Prerequisites
 
-- **Bun** runtime (`curl -fsSL https://bun.sh/install | bash`)
 - **Ollama** installed (`brew install ollama` or `curl -fsSL https://ollama.ai/install.sh | sh`)
 - **Ollama authentication** — sign in with `ollama` and authenticate your account
 - **`ollama serve`** running — only required if using a local model (`qwen3.5:9b`, `qwen3.5:4b`)
@@ -41,14 +42,7 @@ The vision model can be:
 
 ## Setup
 
-### 1. Install dependencies
-
-```bash
-cd qwen-multimedia-mcp
-bun install
-```
-
-### 2. Pull the model
+### 1. Pull the model
 
 ```bash
 # Cloud (recommended — no local resources needed)
@@ -58,7 +52,7 @@ ollama pull qwen3.5:cloud
 ollama pull qwen3.5:9b
 ```
 
-### 3. Add to opencode config (`~/.config/opencode/opencode.json`)
+### 2. Add to opencode config (`~/.config/opencode/opencode.json`)
 
 #### Option A: Ollama Cloud (recommended)
 
@@ -68,7 +62,7 @@ No local resources needed, just Ollama authentication.
 {
   "qwen-vision": {
     "type": "local",
-    "command": ["bun", "run", "/path/to/qwen-multimedia-mcp/src/index.ts"],
+    "command": ["npx", "-y", "qwen-vision-mcp"],
     "environment": {
       "QWEN_VISION_MODEL": "qwen3.5:cloud",
       "OLLAMA_BASE_URL": "http://localhost:11434",
@@ -88,7 +82,7 @@ Requires `ollama serve` running and ~6GB RAM for `qwen3.5:9b`.
 {
   "qwen-vision": {
     "type": "local",
-    "command": ["bun", "run", "/path/to/qwen-multimedia-mcp/src/index.ts"],
+    "command": ["npx", "-y", "qwen-vision-mcp"],
     "environment": {
       "QWEN_VISION_MODEL": "qwen3.5:9b",
       "OLLAMA_BASE_URL": "http://localhost:11434",
@@ -102,7 +96,7 @@ Requires `ollama serve` running and ~6GB RAM for `qwen3.5:9b`.
 
 Other local options: `qwen3.5:4b` (~3GB RAM), `qwen3.5:2b` (~1.5GB RAM).
 
-### 4. Restart opencode
+### 3. Restart opencode
 
 ```bash
 opencode
@@ -117,6 +111,15 @@ The `qwen-vision_*` tools will be available to any model — even ones without n
 | `QWEN_VISION_MODEL` | `qwen3.5:cloud` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
 | `QWEN_VISION_THINK` | `false` | Enable thinking/reasoning mode |
+
+## Development
+
+```bash
+git clone https://github.com/sahilchouksey/qwen-vision-mcp.git
+cd qwen-vision-mcp
+bun install
+bun run dev
+```
 
 ## License
 
