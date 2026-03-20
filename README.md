@@ -6,7 +6,7 @@ MCP server that adds **image analysis capabilities** to AI models that don't nat
 
 ## Why?
 
-Models like **MiMo V2 Pro**, **MiniMax M2.1**, and many others are powerful for text but cannot read or analyze images. This MCP server bridges that gap by routing image tasks to **Qwen 3.5** via Ollama — giving any model vision capabilities through tool calls.
+Models like **MiMo V2 Pro**, **MiniMax M2.1**, **Nemotron 3**, and many others are powerful for text but cannot read or analyze images. This MCP server bridges that gap by routing image tasks to **Qwen 3.5** via Ollama — giving any model vision capabilities through tool calls.
 
 ## How It Works
 

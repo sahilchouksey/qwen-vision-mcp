@@ -28,7 +28,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node",
+    "build": "bun build src/index.ts --outdir dist --target node --banner '#!/usr/bin/env node'",
     "start": "node dist/index.js",
     "dev": "bun run src/index.ts",
     "prepublishOnly": "bun run build"
