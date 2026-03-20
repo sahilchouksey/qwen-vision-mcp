@@ -15,14 +15,14 @@ Your model (MiMo V2 Pro, etc.)  →  calls qwen-vision tool  →  Qwen 3.5 analy
 ```
 
 The vision model can be:
-- **Ollama Cloud** (`qwen3.5:cloud`) — fast, no local resources needed
-- **Local Ollama** (`qwen3.5:9b`, `qwen3.5:4b`) — private, runs on your machine
+- **Ollama Cloud** (`qwen3.5:cloud`) — fast, inference on Ollama's servers (requires `ollama serve` as gateway)
+- **Local Ollama** (`qwen3.5:9b`, `qwen3.5:4b`) — private, runs on your machine (requires `ollama serve`)
 
 ## Prerequisites
 
 - **Ollama** installed (`brew install ollama` or `curl -fsSL https://ollama.ai/install.sh | sh`)
 - **Ollama authentication** — sign in with `ollama` and authenticate your account
-- **`ollama serve`** running — only required if using a local model (`qwen3.5:9b`, `qwen3.5:4b`)
+- **`ollama serve`** running — required for both cloud and local models (Ollama acts as the gateway to cloud inference)
 
 ## Tools
 
@@ -56,7 +56,7 @@ ollama pull qwen3.5:9b
 
 #### Option A: Ollama Cloud (recommended)
 
-No local resources needed, just Ollama authentication.
+`ollama serve` must be running — it acts as the gateway to Ollama's cloud inference.
 
 ```json
 {

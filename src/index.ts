@@ -29,15 +29,21 @@ const ollama = new Ollama({ host: OLLAMA_BASE_URL });
 const server = new McpServer({
   name: "qwen-vision",
   version: "0.1.0",
-  instructions: `This server provides vision/image analysis tools powered by Qwen 3.5. Use these tools when you need to analyze, read, or describe images.
+  instructions: `CRITICAL: These tools add image analysis to models that DO NOT have native vision capabilities (e.g., MiMo V2 Pro, Nemotron 3, MiniMax).
 
-IMPORTANT: When an image appears in the conversation as base64 data (starts with "iVBOR" or "/9j/" or similar), pass the raw base64 string directly to the tool's image_path parameter. The tool accepts:
+ONLY use these tools if YOUR model cannot process images natively. If your model already supports vision, analyze images directly — do NOT use these tools.
+
+When a user asks you to analyze an image and you CANNOT see it yourself:
+1. You do NOT need to see the image — these tools handle that
+2. Simply call the tool with the file path: tool_name(image_path="/path/to/image.png")
+3. The tool will process the image externally and return the result to you
+
+These tools accept:
 - File paths: /absolute/path/to/image.png
 - URLs: https://example.com/image.jpg
-- Raw base64 strings: iVBORw0KGgo...
-- Data URIs: data:image/png;base64,iVBOR...
+- Raw base64 strings
 
-Always prefer these tools over guessing what an image contains.`,
+NEVER say "I can't process images" if these tools are available — they do it for you.`,
 });
 
 async function loadImageBase64(input: string): Promise<string> {
@@ -104,10 +110,10 @@ async function chatWithImage(
 // Tool 1: analyze_image
 server.tool(
   "analyze_image",
-  "Analyze an image using a vision model. IMPORTANT: Pass the image as a file path (/path/to/image.png), URL (https://...), OR raw base64 string (iVBORw0KGgo...). If base64 data appears in conversation, pass it directly to image_path.",
+  "Analyze an image using an external vision model. YOU DO NOT NEED VISION CAPABILITIES — just pass the file path and the tool handles everything. Accepts: file path (/path/to/img.png), URL (https://...), or raw base64 string.",
   {
-    image_path: z.string().describe("Image input: file path, URL, or raw base64 string. If you have base64 data, pass it directly here."),
-    prompt: z.string().optional().default("Describe this image in detail.").describe("Question or instruction about the image"),
+    image_path: z.string().describe("Image file path, URL, or raw base64 string. Example: /Users/me/screenshot.png"),
+    prompt: z.string().optional().default("Describe this image in detail.").describe("What to ask about the image"),
   },
   async ({ image_path, prompt }) => {
     try {
@@ -126,9 +132,9 @@ server.tool(
 // Tool 2: extract_text (OCR)
 server.tool(
   "extract_text",
-  "Extract all visible text from an image (OCR). Pass image as file path, URL, or raw base64 string. If base64 data appears in conversation, pass it directly to image_path.",
+  "Extract all visible text from an image (OCR). YOU DO NOT NEED VISION — just pass the file path. Accepts: file path, URL, or raw base64 string.",
   {
-    image_path: z.string().describe("Image input: file path, URL, or raw base64 string. If you have base64 data, pass it directly here."),
+    image_path: z.string().describe("Image file path, URL, or raw base64 string"),
   },
   async ({ image_path }) => {
     try {
