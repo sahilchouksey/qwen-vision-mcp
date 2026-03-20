@@ -1,0 +1,24 @@
+{
+  "name": "qwen-vision-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for local image/video analysis using Qwen 3.5 via Ollama",
+  "type": "module",
+  "bin": {
+    "qwen-vision-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "start": "node dist/index.js",
+    "dev": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "ollama": "^0.6.3",
+    "sharp": "^0.34.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}
