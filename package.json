@@ -1,15 +1,26 @@
 {
   "name": "qwen-vision-mcp",
   "version": "0.1.0",
-  "description": "MCP server for local image/video analysis using Qwen 3.5 via Ollama",
+  "description": "MCP server for image analysis using Qwen 3.5 via Ollama. Adds vision capabilities to models without native image support.",
   "type": "module",
   "bin": {
     "qwen-vision-mcp": "./dist/index.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sahilchouksey/qwen-vision-mcp.git"
+  },
+  "homepage": "https://github.com/sahilchouksey/qwen-vision-mcp#readme",
+  "bugs": "https://github.com/sahilchouksey/qwen-vision-mcp/issues",
+  "keywords": ["mcp", "vision", "ollama", "qwen", "image-analysis", "ocr", "multimodal"],
+  "license": "MIT",
+  "author": "sahilchouksey",
+  "files": ["dist", "README.md"],
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node",
     "start": "node dist/index.js",
-    "dev": "bun run src/index.ts"
+    "dev": "bun run src/index.ts",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
