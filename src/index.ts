@@ -100,7 +100,7 @@ async function ensureOllamaAvailable(): Promise<void> {
 
 const server = new McpServer({
   name: "qwen-vision",
-  version: "0.1.0",
+  version: "0.2.0",
   instructions: `CRITICAL: These tools add image analysis to models that DO NOT have native vision capabilities (e.g., MiMo V2 Pro, Nemotron 3, MiniMax).
 
 ONLY use these tools if YOUR model cannot process images natively. If your model already supports vision, analyze images directly — do NOT use these tools.
