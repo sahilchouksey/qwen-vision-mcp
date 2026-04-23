@@ -1,0 +1,121 @@
+#!/usr/bin/env bun
+/**
+ * Pure config-based vision detection test.
+ * NO pattern matching — only reads modalities from opencode.json config.
+ * Run: bun test-vision-detection.ts
+ */
+
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const OPENCODE_CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json");
+
+console.log("\n🔍 Pure Config-Based Vision Detection Test\n");
+console.log("Reading:", OPENCODE_CONFIG_PATH);
+console.log("=" .repeat(70));
+
+if (!existsSync(OPENCODE_CONFIG_PATH)) {
+  console.error(`❌ Config not found`);
+  process.exit(1);
+}
+
+const config = JSON.parse(readFileSync(OPENCODE_CONFIG_PATH, "utf-8"));
+
+const results: Array<{
+  provider: string;
+  modelId: string;
+  modelName: string;
+  modalitiesInput: string[] | undefined;
+  modalitiesOutput: string[] | undefined;
+  hasVision: boolean | "unknown";
+}> = [];
+
+for (const [providerName, provider] of Object.entries(config.provider || {})) {
+  if (!provider || typeof provider !== "object") continue;
+  const models = (provider as any).models;
+  if (!models) continue;
+
+  for (const [modelId, modelConfig] of Object.entries(models)) {
+    if (!modelConfig || typeof modelConfig !== "object") continue;
+
+    const cfg = modelConfig as any;
+    const inputModalities = cfg.modalities?.input;
+    const outputModalities = cfg.modalities?.output;
+
+    let hasVision: boolean | "unknown";
+    if (Array.isArray(inputModalities)) {
+      hasVision = inputModalities.includes("image");
+    } else {
+      hasVision = "unknown";
+    }
+
+    results.push({
+      provider: providerName,
+      modelId,
+      modelName: cfg.name || modelId,
+      modalitiesInput: inputModalities,
+      modalitiesOutput: outputModalities,
+      hasVision,
+    });
+  }
+}
+
+// Sort: unknown first (need attention), then vision, then non-vision
+results.sort((a, b) => {
+  if (a.hasVision === "unknown" && b.hasVision !== "unknown") return -1;
+  if (b.hasVision === "unknown" && a.hasVision !== "unknown") return 1;
+  if (a.hasVision !== b.hasVision) return a.hasVision === true ? -1 : 1;
+  return a.provider.localeCompare(b.provider);
+});
+
+console.log(`\n📊 Found ${results.length} models across ${new Set(results.map(r => r.provider)).size} providers\n`);
+
+console.log(
+  `${"Provider".padEnd(20)} ${"Model ID".padEnd(25)} ${"Input Modalities".padEnd(25)} ${"Vision?"}`
+);
+console.log("-".repeat(95));
+
+let visionCount = 0;
+let nonVisionCount = 0;
+let unknownCount = 0;
+
+for (const r of results) {
+  let icon: string;
+  let status: string;
+
+  if (r.hasVision === true) {
+    icon = "✅";
+    status = "YES (configured)";
+    visionCount++;
+  } else if (r.hasVision === false) {
+    icon = "❌";
+    status = "NO (configured)";
+    nonVisionCount++;
+  } else {
+    icon = "⚠️ ";
+    status = "UNKNOWN — no modalities set";
+    unknownCount++;
+  }
+
+  const mods = r.modalitiesInput ? JSON.stringify(r.modalitiesInput) : "—";
+  console.log(
+    `${r.provider.padEnd(20)} ${r.modelId.padEnd(25)} ${mods.padEnd(25)} ${icon} ${status}`
+  );
+}
+
+console.log("\n" + "=".repeat(70));
+console.log(`\n📈 Summary:`);
+console.log(`   ✅ Vision:     ${visionCount} models`);
+console.log(`   ❌ Non-vision: ${nonVisionCount} models`);
+console.log(`   ⚠️  Unknown:    ${unknownCount} models (need modalities configured!)`);
+
+if (unknownCount > 0) {
+  console.log(`\n🚨 ACTION REQUIRED:`);
+  console.log(`   ${unknownCount} models have NO modalities configured.`);
+  console.log(`   Add to each model in ~/.config/opencode/opencode.json:`);
+  console.log(`   "modalities": { "input": ["text"], "output": ["text"] }`);
+  console.log(`   "modalities": { "input": ["text", "image"], "output": ["text"] }  ← if vision`);
+}
+
+console.log("\n✅ Test complete.\n");

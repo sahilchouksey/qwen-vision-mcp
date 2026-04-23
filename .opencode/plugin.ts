@@ -1,22 +1,119 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { readFileSync, existsSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, homedir } from "node:path";
 
 const MODEL = process.env.QWEN_VISION_MODEL || "qwen3.5:cloud";
 const OLLAMA_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const TEMP_DIR = join("/tmp", "qwen-vision");
 const LOG_FILE = join(TEMP_DIR, "plugin.log");
+const OPENCODE_CONFIG_PATH = join(homedir(), ".config", "opencode", "opencode.json");
 
 mkdirSync(TEMP_DIR, { recursive: true });
-
-// Global state: only one active model per plugin instance
-let currentModelHasVision: boolean | undefined;
-let currentModelId: string | undefined;
 
 function log(msg: string) {
   appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
 }
+
+// ---- Vision Detection ----
+// NOTE: OpenCode's `model.capabilities.input.image` is BROKEN — always returns false.
+// We use config-based modalities + pattern fallback instead.
+
+// Known vision-capable model families (checked case-insensitively)
+const VISION_MODEL_PATTERNS = [
+  // OpenAI
+  "gpt-4o", "gpt-4-turbo", "gpt-4-vision", "gpt-4.1", "gpt-5",
+  // Anthropic (all current variants support vision)
+  "claude-3", "claude-4", "claude-sonnet", "claude-opus", "claude-haiku",
+  // Google
+  "gemini", "gemma-3",
+  // Alibaba
+  "qwen2.5-vl", "qwen-vl", "qwen3-vl", "qwen3.6", "qwen3.5:cloud",
+  // Moonshot / Kimi
+  "kimi",
+  // Meta
+  "llama-3.2-vision", "llama-3.2-11b", "llama-3.2-90b",
+  // Mistral
+  "pixtral", "mistral-large-vision",
+  // DeepSeek
+  "deepseek-vl",
+  // Microsoft
+  "phi-4-vision", "phi-3-vision",
+  // Other popular multimodal models
+  "glm-4v", "yi-vl", "internvl", "cogvlm",
+];
+
+function modelHasVisionById(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  return VISION_MODEL_PATTERNS.some((pattern) => id.includes(pattern.toLowerCase()));
+}
+
+// Cache for config lookups
+let configCache: any = null;
+let configCacheTime = 0;
+const CONFIG_CACHE_TTL = 5000; // ms
+
+function loadOpencodeConfig(): any {
+  const now = Date.now();
+  if (configCache && now - configCacheTime < CONFIG_CACHE_TTL) {
+    return configCache;
+  }
+  try {
+    if (existsSync(OPENCODE_CONFIG_PATH)) {
+      const raw = readFileSync(OPENCODE_CONFIG_PATH, "utf-8");
+      configCache = JSON.parse(raw);
+      configCacheTime = now;
+      return configCache;
+    }
+  } catch (e: any) {
+    log(`failed to load opencode config: ${e.message}`);
+  }
+  return null;
+}
+
+function checkModelConfigForVision(modelId: string): boolean | undefined {
+  const config = loadOpencodeConfig();
+  if (!config?.provider) return undefined;
+
+  for (const [providerName, provider] of Object.entries(config.provider)) {
+    if (!provider || typeof provider !== "object") continue;
+    const models = (provider as any).models;
+    if (!models || typeof models !== "object") continue;
+
+    const modelConfig = models[modelId];
+    if (!modelConfig) continue;
+
+    // Explicit modalities definition — this is the ground truth
+    if (modelConfig.modalities?.input) {
+      const hasImage = modelConfig.modalities.input.includes("image");
+      log(`config lookup: model=${modelId} provider=${providerName} hasImage=${hasImage}`);
+      return hasImage;
+    }
+
+    // No modalities defined for this model in config
+    log(`config lookup: model=${modelId} provider=${providerName} no modalities defined`);
+    return undefined;
+  }
+
+  log(`config lookup: model=${modelId} not found in any provider`);
+  return undefined;
+}
+
+// Main detection function: returns true/false, never undefined
+function detectVisionCapability(modelId: string): boolean {
+  if (!modelId) return false;
+
+  // 1. Config lookup (most deterministic)
+  const fromConfig = checkModelConfigForVision(modelId);
+  if (fromConfig !== undefined) return fromConfig;
+
+  // 2. Model ID patterns (fallback for models without config modalities)
+  const fromPattern = modelHasVisionById(modelId);
+  log(`detectVision: pattern fallback model=${modelId} hasVision=${fromPattern}`);
+  return fromPattern;
+}
+
+// ---- Vision API ----
 
 async function askVision(prompt: string, b64: string): Promise<string> {
   const res = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -44,62 +141,43 @@ async function askVision(prompt: string, b64: string): Promise<string> {
   return content || "No response from vision model";
 }
 
+// ---- Plugin ----
+
 export const QwenVisionPlugin: Plugin = async ({ client }) => {
   return {
     // Inject vision instructions into system prompt for non-vision models
     "experimental.chat.system.transform": async (input, output) => {
-      const hasVision = input.model?.capabilities?.input?.image ?? false;
+      const modelId = input.model?.id;
+      const hasVision = modelId ? detectVisionCapability(modelId) : false;
       if (!hasVision) {
         output.system.push(
           `IMPORTANT: You have access to image analysis through an external vision plugin. When images are provided, the plugin automatically analyzes them and provides the analysis as an additional message. USE the analysis to answer questions about images. DO NOT say "I can't read images" — the analysis is provided for you.`
         );
-        log(`system.transform: injected vision instructions for ${input.model?.id}`);
+        log(`system.transform: injected vision instructions for ${modelId}`);
       } else {
-        log(`system.transform: skipped — ${input.model?.id} has vision`);
+        log(`system.transform: skipped — ${modelId} has vision`);
       }
     },
 
     "chat.params": async (input) => {
-      const hasVision = input.model?.capabilities?.input?.image ?? false;
-      currentModelHasVision = hasVision;
-      currentModelId = input.model?.id;
-      log(`chat.params: model=${input.model?.id}, hasVision=${hasVision}`);
+      const modelId = input.model?.id;
+      const hasVision = modelId ? detectVisionCapability(modelId) : false;
+      log(`chat.params: model=${modelId}, hasVision=${hasVision}`);
     },
 
     "chat.message": async (input, output) => {
       const parts = output.parts;
 
-      // Determine if current model has vision capability
-      // 1. Direct check on input.model (if available in this hook)
-      let hasVision = (input as any).model?.capabilities?.input?.image;
-      const modelId = (input as any).model?.id || currentModelId;
+      // Extract model ID from the minimal info available in chat.message
+      const modelId = (input as any).model?.id || (input as any).model?.modelID;
 
-      // 2. Fall back to global state from chat.params (same model still active)
-      if (hasVision === undefined && modelId && modelId === currentModelId) {
-        hasVision = currentModelHasVision;
-        log(`chat.message: used global state, model=${modelId}, hasVision=${hasVision}`);
+      if (!modelId) {
+        log(`chat.message: no model ID found, skipping`);
+        return;
       }
 
-      // 3. If still unknown, try model ID string detection
-      if (hasVision === undefined && modelId) {
-        const id = modelId.toLowerCase();
-        // Models definitively known to have vision
-        if (
-          id.includes("claude-3") || id.includes("claude-4") ||
-          id.includes("gpt-4o") || id.includes("gpt-4-turbo") ||
-          id.includes("gpt-5") || id.includes("gemini")
-        ) {
-          hasVision = true;
-          log(`chat.message: detected vision model by ID=${modelId}`);
-        }
-      }
-
-      // 4. Final fallback: if we still can't tell, default to running plugin
-      // (better to analyze unnecessarily than fail on a non-vision model)
-      if (hasVision === undefined) {
-        log(`chat.message: could not detect vision capability for ${modelId}, defaulting to no vision`);
-        hasVision = false;
-      }
+      const hasVision = detectVisionCapability(modelId);
+      log(`chat.message: model=${modelId}, hasVision=${hasVision}`);
 
       if (hasVision === true) {
         log(`SKIP: model has vision (${modelId})`);
@@ -118,6 +196,23 @@ export const QwenVisionPlugin: Plugin = async ({ client }) => {
           const b64 = part.url.replace(/^data:image\/[^;]+;base64,/, "");
           log(`FOUND image: b64_len=${b64.length}`);
 
+          // Send acknowledgment that we're analyzing
+          const sessionId = (input as any).sessionID || (output as any).message?.sessionID;
+          if (sessionId) {
+            try {
+              await client.session.prompt({
+                path: { id: sessionId },
+                body: {
+                  noReply: true,
+                  parts: [{ type: "text", text: "🔍 Analyzing image with Qwen 3.5..." }],
+                },
+              });
+              log("sent analysis acknowledgment");
+            } catch (e: any) {
+              log(`failed to send acknowledgment: ${e.message}`);
+            }
+          }
+
           try {
             const description = await askVision(
               "Describe this image in detail.",
@@ -133,22 +228,31 @@ export const QwenVisionPlugin: Plugin = async ({ client }) => {
             if (textPart && (textPart as any).text) {
               (textPart as any).text = `${(textPart as any).text}\n\n[Image Analysis by Qwen 3.5]:\n${description}`;
               log("injected analysis into user message text");
-            } else {
-              // Fallback: inject as noReply prompt (should be rare)
-              const sessionId = (input as any).sessionID || (output as any).message?.sessionID;
-              if (sessionId) {
+            } else if (sessionId) {
+              // Fallback: inject as noReply prompt
+              await client.session.prompt({
+                path: { id: sessionId },
+                body: {
+                  noReply: true,
+                  parts: [{ type: "text", text: `[Image Analysis (Qwen 3.5)]:\n${description}` }],
+                },
+              });
+              log("injected as noReply fallback");
+            }
+          } catch (e: any) {
+            log(`ERROR: ${e.message}`);
+            // Inject error message so user knows something went wrong
+            if (sessionId) {
+              try {
                 await client.session.prompt({
                   path: { id: sessionId },
                   body: {
                     noReply: true,
-                    parts: [{ type: "text", text: `[Image Analysis (Qwen 3.5)]:\n${description}` }],
+                    parts: [{ type: "text", text: `❌ Image analysis failed: ${e.message}` }],
                   },
                 });
-                log("injected as noReply fallback");
-              }
+              } catch {}
             }
-          } catch (e: any) {
-            log(`ERROR: ${e.message}`);
           }
         }
       }
