@@ -121,6 +121,70 @@ bun install
 bun run dev
 ```
 
+## Plugin Mode (Non-Multimodal Models)
+
+For models that **cannot call tools** or **don't support MCP**, use the **OpenCode Plugin** in `.opencode/plugin.ts`. This plugin intercepts chat messages containing images, analyzes them automatically via Qwen 3.5, and injects the analysis into the conversation — no tool calls needed.
+
+### How Plugin Mode Works
+
+```
+User pastes image → Plugin detects image → Qwen 3.5 analyzes it → Analysis injected as text → Model responds using analysis
+```
+
+### When to Use Plugin vs MCP
+
+| Approach | Best For | Setup |
+|----------|----------|-------|
+| **MCP** | Models that support tool calling (Claude, GPT-4, etc.) | Add to `mcp` section in `opencode.json` |
+| **Plugin** | Models without tool support or vision (MiMo V2 Pro, MiniMax, Nemotron 3, etc.) | Add to `plugin` section in `opencode.json` |
+
+### Plugin Setup
+
+1. **Copy the plugin file** to your opencode config:
+
+```bash
+cp .opencode/plugin.ts ~/.config/opencode/plugins/qwen-vision.ts
+```
+
+2. **Add to `~/.config/opencode/opencode.json`**:
+
+```json
+{
+  "plugin": [
+    "file:///Users/YOUR_USERNAME/.config/opencode/plugins/qwen-vision.ts"
+  ]
+}
+```
+
+3. **Ensure Ollama is running**:
+
+```bash
+ollama serve
+```
+
+4. **Restart opencode**. The plugin will:
+   - Detect when you paste an image
+   - Automatically analyze it with Qwen 3.5
+   - Inject the analysis into your message text
+   - The model will respond as if it can see the image
+
+### Plugin Features
+
+- **Automatic image detection** — works on paste/upload
+- **No tool calls required** — models don't need tool support
+- **Transparent injection** — analysis appended to user message
+- **Fallback mode** — injects as system message if text part not found
+- **Built-in tools** — `vision` and `vision_text` tools available for explicit calls
+
+### Plugin Configuration
+
+Same environment variables as MCP mode:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QWEN_VISION_MODEL` | `qwen3.5:cloud` | Ollama model name |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+
 ## License
 
 MIT

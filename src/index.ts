@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Ollama } from "ollama";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { dirname, basename, join } from "node:path";
+import { spawn } from "node:child_process";
 import sharp from "sharp";
 
 const MAX_IMAGE_BYTES = 400_000; // 400KB per image
@@ -23,8 +24,79 @@ async function resizeIfNeeded(b64: string): Promise<string> {
 const MODEL_NAME = process.env.QWEN_VISION_MODEL || "qwen3.5:cloud";
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 const THINK = process.env.QWEN_VISION_THINK?.toLowerCase() === "true";
+const AUTO_START_OLLAMA = process.env.QWEN_VISION_AUTO_START_OLLAMA !== "false";
+const OLLAMA_STARTUP_TIMEOUT_MS = Number.parseInt(
+  process.env.QWEN_VISION_OLLAMA_STARTUP_TIMEOUT_MS || "12000",
+  10,
+);
 
 const ollama = new Ollama({ host: OLLAMA_BASE_URL });
+let ollamaReady = false;
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    const msg = err.message || "Unknown error";
+    if (/ECONNREFUSED|fetch failed|connect/i.test(msg)) {
+      return `Cannot connect to Ollama at ${OLLAMA_BASE_URL}. The MCP server is running, but Ollama is not reachable. Start Ollama (or enable auto-start) and retry.`;
+    }
+    return msg;
+  }
+  return String(err);
+}
+
+async function isOllamaReachable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
+      method: "GET",
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForOllama(timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await isOllamaReachable()) return true;
+    await delay(250);
+  }
+  return false;
+}
+
+async function ensureOllamaAvailable(): Promise<void> {
+  if (ollamaReady && (await isOllamaReachable())) return;
+  if (await isOllamaReachable()) {
+    ollamaReady = true;
+    return;
+  }
+
+  if (!AUTO_START_OLLAMA) {
+    throw new Error(
+      `Cannot connect to Ollama at ${OLLAMA_BASE_URL}. Auto-start is disabled (QWEN_VISION_AUTO_START_OLLAMA=false).`,
+    );
+  }
+
+  console.error(`Ollama not reachable at ${OLLAMA_BASE_URL}. Attempting auto-start...`);
+  const child = spawn("ollama", ["serve"], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+
+  const ready = await waitForOllama(OLLAMA_STARTUP_TIMEOUT_MS);
+  if (!ready) {
+    throw new Error(
+      `Unable to connect to Ollama at ${OLLAMA_BASE_URL} after auto-start attempt (${OLLAMA_STARTUP_TIMEOUT_MS}ms).`,
+    );
+  }
+
+  ollamaReady = true;
+  console.error(`Ollama is reachable at ${OLLAMA_BASE_URL}`);
+}
 
 const server = new McpServer({
   name: "qwen-vision",
@@ -92,19 +164,24 @@ async function chatWithImage(
   prompt: string,
   images: string[],
 ): Promise<string> {
+  await ensureOllamaAvailable();
   const resized = await Promise.all(images.map(resizeIfNeeded));
-  const response = await ollama.chat({
-    model: MODEL_NAME,
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-        images: resized,
-      },
-    ],
-    think: THINK,
-  });
-  return response.message.content;
+  try {
+    const response = await ollama.chat({
+      model: MODEL_NAME,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+          images: resized,
+        },
+      ],
+      think: THINK,
+    });
+    return response.message.content;
+  } catch (err) {
+    throw new Error(formatError(err));
+  }
 }
 
 // Tool 1: analyze_image
