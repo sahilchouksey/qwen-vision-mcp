@@ -10,8 +10,9 @@ const LOG_FILE = join(TEMP_DIR, "plugin.log");
 
 mkdirSync(TEMP_DIR, { recursive: true });
 
-const visionCache = new Map<string, boolean>();
-const processedSessions = new Set<string>();
+// Global state: only one active model per plugin instance
+let currentModelHasVision: boolean | undefined;
+let currentModelId: string | undefined;
 
 function log(msg: string) {
   appendFileSync(LOG_FILE, `[${new Date().toISOString()}] ${msg}\n`);
@@ -60,29 +61,52 @@ export const QwenVisionPlugin: Plugin = async ({ client }) => {
 
     "chat.params": async (input) => {
       const hasVision = input.model?.capabilities?.input?.image ?? false;
-      visionCache.set(input.sessionID, hasVision);
+      currentModelHasVision = hasVision;
+      currentModelId = input.model?.id;
       log(`chat.params: model=${input.model?.id}, hasVision=${hasVision}`);
     },
 
     "chat.message": async (input, output) => {
       const parts = output.parts;
-      const sessionId = (input as any).sessionID || output.message?.sessionID;
 
-      // Skip first message per session — chat.params hasn't cached vision yet
-      if (!processedSessions.has(sessionId)) {
-        processedSessions.add(sessionId);
-        log(`SKIP first message: waiting for chat.params to cache vision capability`);
-        return;
+      // Determine if current model has vision capability
+      // 1. Direct check on input.model (if available in this hook)
+      let hasVision = (input as any).model?.capabilities?.input?.image;
+      const modelId = (input as any).model?.id || currentModelId;
+
+      // 2. Fall back to global state from chat.params (same model still active)
+      if (hasVision === undefined && modelId && modelId === currentModelId) {
+        hasVision = currentModelHasVision;
+        log(`chat.message: used global state, model=${modelId}, hasVision=${hasVision}`);
       }
 
-      // Use cached capability from chat.params
-      const hasVision = visionCache.get(sessionId);
+      // 3. If still unknown, try model ID string detection
+      if (hasVision === undefined && modelId) {
+        const id = modelId.toLowerCase();
+        // Models definitively known to have vision
+        if (
+          id.includes("claude-3") || id.includes("claude-4") ||
+          id.includes("gpt-4o") || id.includes("gpt-4-turbo") ||
+          id.includes("gpt-5") || id.includes("gemini")
+        ) {
+          hasVision = true;
+          log(`chat.message: detected vision model by ID=${modelId}`);
+        }
+      }
+
+      // 4. Final fallback: if we still can't tell, default to running plugin
+      // (better to analyze unnecessarily than fail on a non-vision model)
+      if (hasVision === undefined) {
+        log(`chat.message: could not detect vision capability for ${modelId}, defaulting to no vision`);
+        hasVision = false;
+      }
+
       if (hasVision === true) {
-        log(`SKIP: model has vision`);
+        log(`SKIP: model has vision (${modelId})`);
         return;
       }
 
-      log(`Processing: model lacks vision`);
+      log(`Processing: model lacks vision (${modelId})`);
       if (!parts || !Array.isArray(parts)) return;
 
       for (const part of parts) {
@@ -109,16 +133,19 @@ export const QwenVisionPlugin: Plugin = async ({ client }) => {
             if (textPart && (textPart as any).text) {
               (textPart as any).text = `${(textPart as any).text}\n\n[Image Analysis by Qwen 3.5]:\n${description}`;
               log("injected analysis into user message text");
-            } else if (sessionId) {
-              // Fallback: inject as noReply prompt
-              await client.session.prompt({
-                path: { id: sessionId },
-                body: {
-                  noReply: true,
-                  parts: [{ type: "text", text: `[Image Analysis (Qwen 3.5)]:\n${description}` }],
-                },
-              });
-              log("injected as noReply fallback");
+            } else {
+              // Fallback: inject as noReply prompt (should be rare)
+              const sessionId = (input as any).sessionID || (output as any).message?.sessionID;
+              if (sessionId) {
+                await client.session.prompt({
+                  path: { id: sessionId },
+                  body: {
+                    noReply: true,
+                    parts: [{ type: "text", text: `[Image Analysis (Qwen 3.5)]:\n${description}` }],
+                  },
+                });
+                log("injected as noReply fallback");
+              }
             }
           } catch (e: any) {
             log(`ERROR: ${e.message}`);
